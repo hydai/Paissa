@@ -36,8 +36,16 @@ python examples/api_client_example.py # HTTP API client demo
 
 ### Development
 ```bash
-# No built-in linting/testing commands - add as needed
-# Code uses type hints throughout - consider adding mypy
+# Linting and type checking
+black .                      # Format code
+isort .                      # Sort imports
+flake8 .                     # Lint code
+mypy --install-types --non-interactive --ignore-missing-imports .  # Type check
+
+# Docker operations
+docker build -t paissa-server .
+docker run -e PORT=8080 -p 8080:8080 paissa-server
+docker-compose up -d         # Using docker-compose
 ```
 
 ## Architecture
@@ -111,9 +119,12 @@ PaissaClient (async client)
 ### WebSocket Handling
 
 - Connection URL: `wss://paissadb.zhu.codes/ws`
-- Auto-reconnection with backoff: 1s → 2s → 4s → ... → 60s
-- Subscribe to worlds: `{"type": "subscribe", "world": world_id}`
-- Updates arrive as: `{"type": "plot_update", "plot": {...}}`
+- Auto-reconnection with exponential backoff (max 5 retries)
+- Message types handled:
+  - `plot_open`: New plot available
+  - `plot_update`: Plot information changed
+  - `plot_sold`: Plot no longer available
+- WebSocket runs in background task (`_ws_handler`)
 
 ### Error Handling Patterns
 
@@ -154,3 +165,31 @@ if not force_refresh and world_id in cache:
 - Always activate virtual environment
   - Every time installing or executing Python, first enter venv
     - 每次要安裝或者執行 python 以前都需要先進入 venv 中
+
+## CI/CD Workflows
+
+### GitHub Actions
+
+1. **Lint Workflow** (`.github/workflows/lint.yml`)
+   - Runs on push/PR to master branch
+   - Tests Python 3.9-3.12 compatibility
+   - Executes: Black, isort, flake8, mypy
+   - Caches pip dependencies
+
+2. **Docker Workflow** (`.github/workflows/docker.yml`)
+   - Builds multi-platform images (amd64, arm64)
+   - Publishes to ghcr.io (GitHub Container Registry)
+   - Tags: latest, version tags, branch-sha
+   - Generates SBOM for security scanning
+
+### Git Commit Conventions
+
+When creating commits with Claude:
+- Include attribution in commit messages:
+  ```
+  Your commit message here
+  
+  🤖 Generated with [Claude Code](https://claude.ai/code)
+  
+  Co-Authored-By: Claude <noreply@anthropic.com>
+  ```
