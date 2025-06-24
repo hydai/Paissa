@@ -7,6 +7,17 @@ __pycache__/
 venv/
 env/
 ENV/
+.venv/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
 
 # IDE
 .vscode/

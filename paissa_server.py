@@ -8,18 +8,17 @@
 PaissaDB HTTP Server - RESTful API server with caching for PaissaDB data
 """
 
-import asyncio
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from contextlib import asynccontextmanager
 
+import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-import uvicorn
+from pydantic import BaseModel
 
-from paissa_client import PaissaClient, PlotState, HouseSize, LottoPhase
+from paissa_client import HouseSize, LottoPhase, PaissaClient, PlotState
 
 
 # Pydantic models for API responses
@@ -71,39 +70,37 @@ class WorldCache:
     def __init__(self, ttl_minutes: int = 5):
         self.cache: Dict[int, Dict] = {}
         self.ttl = timedelta(minutes=ttl_minutes)
-        
+
     def get(self, world_id: int) -> Optional[Dict]:
         """Get cached data if not expired"""
         if world_id in self.cache:
             cache_entry = self.cache[world_id]
-            if datetime.now() < cache_entry['expires_at']:
+            if datetime.now() < cache_entry["expires_at"]:
                 return cache_entry
         return None
-        
+
     def set(self, world_id: int, plots: List[PlotState]):
         """Cache world data"""
         now = datetime.now()
-        self.cache[world_id] = {
-            'plots': plots,
-            'cached_at': now,
-            'expires_at': now + self.ttl
-        }
-        
+        self.cache[world_id] = {"plots": plots, "cached_at": now, "expires_at": now + self.ttl}
+
     def invalidate(self, world_id: int):
         """Remove world from cache"""
         if world_id in self.cache:
             del self.cache[world_id]
-            
+
     def get_info(self) -> List[CacheInfo]:
         """Get cache status information"""
         info = []
         for world_id, data in self.cache.items():
-            info.append(CacheInfo(
-                world_id=world_id,
-                cached_at=data['cached_at'],
-                expires_at=data['expires_at'],
-                plot_count=len(data['plots'])
-            ))
+            info.append(
+                CacheInfo(
+                    world_id=world_id,
+                    cached_at=data["cached_at"],
+                    expires_at=data["expires_at"],
+                    plot_count=len(data["plots"]),
+                )
+            )
         return info
 
 
@@ -130,7 +127,7 @@ app = FastAPI(
     title="PaissaDB API Server",
     description="RESTful API for FFXIV housing data with caching",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -146,23 +143,15 @@ app.add_middleware(
 # Helper functions
 def format_plot_info(plot: PlotState, client: PaissaClient) -> PlotInfo:
     """Convert PlotState to PlotInfo with additional formatted fields"""
-    size_names = {
-        HouseSize.SMALL: "Small",
-        HouseSize.MEDIUM: "Medium",
-        HouseSize.LARGE: "Large"
-    }
-    
-    phase_names = {
-        LottoPhase.ENTRY: "Entry",
-        LottoPhase.RESULTS: "Results",
-        LottoPhase.UNAVAILABLE: "Unavailable"
-    }
-    
+    size_names = {HouseSize.SMALL: "Small", HouseSize.MEDIUM: "Medium", HouseSize.LARGE: "Large"}
+
+    phase_names = {LottoPhase.ENTRY: "Entry", LottoPhase.RESULTS: "Results", LottoPhase.UNAVAILABLE: "Unavailable"}
+
     # Calculate time left
     time_left = None
     if plot.lotto_phase_until:
         time_left = max(0, plot.lotto_phase_until - int(datetime.now().timestamp()))
-    
+
     return PlotInfo(
         world_id=plot.world_id,
         district_id=plot.district_id,
@@ -170,16 +159,16 @@ def format_plot_info(plot: PlotState, client: PaissaClient) -> PlotInfo:
         ward_number=plot.ward_number,
         plot_number=plot.plot_number,
         size=plot.size,
-        size_name=size_names.get(plot.size, "Unknown"),
+        size_name=size_names.get(HouseSize(plot.size), "Unknown"),
         price=plot.price,
         last_updated_time=plot.last_updated_time,
         first_seen_time=plot.first_seen_time,
         purchase_system=plot.purchase_system,
         lotto_entries=plot.lotto_entries,
         lotto_phase=plot.lotto_phase,
-        lotto_phase_name=phase_names.get(plot.lotto_phase) if plot.lotto_phase else None,
+        lotto_phase_name=phase_names.get(LottoPhase(plot.lotto_phase)) if plot.lotto_phase else None,
         lotto_phase_until=plot.lotto_phase_until,
-        time_left_seconds=time_left
+        time_left_seconds=time_left,
     )
 
 
@@ -190,16 +179,20 @@ async def get_world_plots(world_id: int, force_refresh: bool = False) -> List[Pl
         cached_data = cache.get(world_id)
         if cached_data:
             logger.info(f"Returning cached data for world {world_id}")
-            return cached_data['plots']
-    
+            plots: List[PlotState] = cached_data["plots"]
+            return plots
+
     # Load from API
     logger.info(f"Loading data from API for world {world_id}")
-    await client.load_world(world_id, force_reload=True)
-    plots = client.get_world_plots(world_id)
-    
+    if client:
+        await client.load_world(world_id, force_reload=True)
+        plots = client.get_world_plots(world_id)
+    else:
+        raise HTTPException(status_code=500, detail="Client not initialized")
+
     # Update cache
     cache.set(world_id, plots)
-    
+
     return plots
 
 
@@ -215,8 +208,8 @@ async def root():
             "world_plots": "/api/worlds/{world_id}/plots",
             "world_stats": "/api/worlds/{world_id}/stats",
             "search": "/api/search",
-            "cache": "/api/cache"
-        }
+            "cache": "/api/cache",
+        },
     }
 
 
@@ -225,13 +218,10 @@ async def get_worlds():
     """Get all available worlds"""
     if not client.worlds:
         await client.get_worlds()
-    
+
     return [
         WorldInfo(
-            id=world.id,
-            name=world.name,
-            datacenter_id=world.datacenter_id,
-            datacenter_name=world.datacenter_name
+            id=world.id, name=world.name, datacenter_id=world.datacenter_id, datacenter_name=world.datacenter_name
         )
         for world in client.worlds
     ]
@@ -247,39 +237,35 @@ async def get_plots(
     available_only: bool = Query(False, description="Only show immediately available plots"),
     sort_by: str = Query("ward", description="Sort by: ward, price, entries"),
     limit: int = Query(100, description="Maximum number of results"),
-    force_refresh: bool = Query(False, description="Force refresh from API")
+    force_refresh: bool = Query(False, description="Force refresh from API"),
 ):
     """Get plots for a specific world with optional filters"""
     plots = await get_world_plots(world_id, force_refresh)
-    
+
     # Apply filters
     filtered_plots = plots
-    
+
     # Size filter
     if size:
-        size_map = {
-            "small": HouseSize.SMALL,
-            "medium": HouseSize.MEDIUM,
-            "large": HouseSize.LARGE
-        }
+        size_map = {"small": HouseSize.SMALL, "medium": HouseSize.MEDIUM, "large": HouseSize.LARGE}
         if size.lower() in size_map:
             size_value = size_map[size.lower()]
             filtered_plots = [p for p in filtered_plots if p.size == size_value]
-    
+
     # Price filters
     if min_price:
         filtered_plots = [p for p in filtered_plots if p.price >= min_price]
     if max_price:
         filtered_plots = [p for p in filtered_plots if p.price <= max_price]
-    
+
     # Lottery filter
     if lottery_only:
         filtered_plots = [p for p in filtered_plots if p.lotto_phase == LottoPhase.ENTRY]
-    
+
     # Available only filter
     if available_only:
         filtered_plots = [p for p in filtered_plots if p.lotto_entries is None]
-    
+
     # Sorting
     if sort_by == "price":
         filtered_plots.sort(key=lambda p: p.price)
@@ -287,30 +273,30 @@ async def get_plots(
         filtered_plots.sort(key=lambda p: p.lotto_entries or 999999)
     else:  # ward
         filtered_plots.sort(key=lambda p: (p.district_id, p.ward_number, p.plot_number))
-    
+
     # Apply limit
     filtered_plots = filtered_plots[:limit]
-    
+
     # Convert to response model
-    return [format_plot_info(plot, client) for plot in filtered_plots]
+    if client:
+        return [format_plot_info(plot, client) for plot in filtered_plots]
+    else:
+        raise HTTPException(status_code=500, detail="Client not initialized")
 
 
 @app.get("/api/worlds/{world_id}/stats", response_model=WorldStats, tags=["Statistics"])
-async def get_world_stats(
-    world_id: int,
-    force_refresh: bool = Query(False, description="Force refresh from API")
-):
+async def get_world_stats(world_id: int, force_refresh: bool = Query(False, description="Force refresh from API")):
     """Get statistics for a specific world"""
     plots = await get_world_plots(world_id, force_refresh)
-    
+
     if not plots:
         raise HTTPException(status_code=404, detail=f"No data found for world {world_id}")
-    
+
     # Calculate statistics
     size_counts = {"small": 0, "medium": 0, "large": 0}
     phase_counts = {"available": 0, "entry": 0, "results": 0, "unavailable": 0}
     prices = []
-    
+
     for plot in plots:
         # Size statistics
         if plot.size == HouseSize.SMALL:
@@ -319,7 +305,7 @@ async def get_world_stats(
             size_counts["medium"] += 1
         elif plot.size == HouseSize.LARGE:
             size_counts["large"] += 1
-        
+
         # Phase statistics
         if plot.lotto_entries is None:
             phase_counts["available"] += 1
@@ -329,24 +315,26 @@ async def get_world_stats(
             phase_counts["results"] += 1
         elif plot.lotto_phase == LottoPhase.UNAVAILABLE:
             phase_counts["unavailable"] += 1
-        
+
         prices.append(plot.price)
-    
+
     # Price statistics
     price_stats = {
         "min": min(prices) if prices else 0,
         "max": max(prices) if prices else 0,
-        "average": sum(prices) // len(prices) if prices else 0
+        "average": sum(prices) // len(prices) if prices else 0,
     }
-    
+
+    world_name = client.world_name(world_id) if client else str(world_id)
+
     return WorldStats(
         world_id=world_id,
-        world_name=client.world_name(world_id),
+        world_name=world_name,
         total_plots=len(plots),
         plots_by_size=size_counts,
         plots_by_phase=phase_counts,
         price_stats=price_stats,
-        last_updated=datetime.now()
+        last_updated=datetime.now(),
     )
 
 
@@ -356,7 +344,7 @@ async def search_plots(
     size: Optional[str] = Query(None, description="Filter by size: small, medium, large"),
     worlds: Optional[str] = Query(None, description="Comma-separated world IDs"),
     lottery_only: bool = Query(False, description="Only show lottery plots"),
-    limit: int = Query(50, description="Maximum number of results")
+    limit: int = Query(50, description="Maximum number of results"),
 ):
     """Search for plots across multiple worlds"""
     # Parse world IDs
@@ -368,10 +356,13 @@ async def search_plots(
             raise HTTPException(status_code=400, detail="Invalid world IDs format")
     else:
         # If no worlds specified, search all worlds
-        if not client.worlds:
-            await client.get_worlds()
-        world_ids = [w.id for w in client.worlds[:10]]  # Limit to first 10 worlds
-    
+        if client:
+            if not client.worlds:
+                await client.get_worlds()
+            world_ids = [w.id for w in client.worlds[:10]]  # Limit to first 10 worlds
+        else:
+            raise HTTPException(status_code=500, detail="Client not initialized")
+
     # Collect plots from all worlds
     all_plots = []
     for world_id in world_ids:
@@ -380,34 +371,33 @@ async def search_plots(
             all_plots.extend(plots)
         except Exception as e:
             logger.error(f"Error loading world {world_id}: {e}")
-    
+
     # Apply filters
     filtered_plots = all_plots
-    
+
     # Price filter
     filtered_plots = [p for p in filtered_plots if p.price <= max_price]
-    
+
     # Size filter
     if size:
-        size_map = {
-            "small": HouseSize.SMALL,
-            "medium": HouseSize.MEDIUM,
-            "large": HouseSize.LARGE
-        }
+        size_map = {"small": HouseSize.SMALL, "medium": HouseSize.MEDIUM, "large": HouseSize.LARGE}
         if size.lower() in size_map:
             size_value = size_map[size.lower()]
             filtered_plots = [p for p in filtered_plots if p.size == size_value]
-    
+
     # Lottery filter
     if lottery_only:
         filtered_plots = [p for p in filtered_plots if p.lotto_phase == LottoPhase.ENTRY]
-    
+
     # Sort by price and limit
     filtered_plots.sort(key=lambda p: p.price)
     filtered_plots = filtered_plots[:limit]
-    
+
     # Convert to response model
-    return [format_plot_info(plot, client) for plot in filtered_plots]
+    if client:
+        return [format_plot_info(plot, client) for plot in filtered_plots]
+    else:
+        raise HTTPException(status_code=500, detail="Client not initialized")
 
 
 @app.get("/api/cache", response_model=List[CacheInfo], tags=["Cache"])
@@ -438,32 +428,23 @@ async def health_check():
         "status": "healthy",
         "client_connected": client is not None and client._ws is not None,
         "cached_worlds": len(cache.cache),
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
 
 def main():
     """Run the server"""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="PaissaDB HTTP API Server")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to (default: 8000)")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload (development)")
     args = parser.parse_args()
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    uvicorn.run(
-        "paissa_server:app",
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-        log_level="info"
-    )
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    uvicorn.run("paissa_server:app", host=args.host, port=args.port, reload=args.reload, log_level="info")
 
 
 if __name__ == "__main__":
