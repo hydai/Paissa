@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2024 hydai
+# Licensed under the MIT License - see LICENSE file for details
+#
 """
 PaissaDB Client - A Python client for fetching FFXIV housing data from PaissaDB API
 """

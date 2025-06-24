@@ -286,4 +286,6 @@ curl http://localhost:8000/health
 
 ## 授權
 
+本專案採用 MIT License 授權 - 詳見 [LICENSE](LICENSE) 檔案。
+
 本專案僅為客戶端實作，使用時請遵守 PaissaDB 的使用條款。
