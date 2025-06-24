@@ -125,7 +125,14 @@ python interactive_monitor.py
 提供 RESTful API 服務，包含快取機制：
 
 ```bash
+# 預設執行（port 8000）
 python paissa_server.py
+
+# 指定其他 port
+python paissa_server.py --port 8080
+
+# 開發模式（自動重載）
+python paissa_server.py --reload
 ```
 
 伺服器功能：
@@ -222,6 +229,56 @@ HTTP 伺服器使用智慧快取來優化效能：
 - HTTP 伺服器的快取機制可有效減少 API 請求
 - WebSocket 連線具有自動重連機制（最多 5 次）
 - 建議在正式環境中使用 HTTP 伺服器以獲得最佳效能
+
+## Docker 部署
+
+### 使用 Docker 執行伺服器
+
+建置映像檔：
+```bash
+docker build -t paissa-server .
+```
+
+執行容器：
+```bash
+# 使用預設 port (8000)
+docker run -d --name paissa-server -p 8000:8000 paissa-server
+
+# 使用自訂 port
+docker run -d --name paissa-server -e PORT=8080 -p 8080:8080 paissa-server
+
+# 查看日誌
+docker logs -f paissa-server
+```
+
+### 使用 Docker Compose
+
+更簡單的部署方式：
+
+```bash
+# 啟動服務
+docker-compose up -d
+
+# 查看日誌
+docker-compose logs -f
+
+# 停止服務
+docker-compose down
+```
+
+修改 port：編輯 `docker-compose.yml` 中的 `PORT` 環境變數和 `ports` 設定。
+
+### 健康檢查
+
+容器包含健康檢查機制，可透過以下方式確認：
+
+```bash
+# 檢查容器健康狀態
+docker ps --format "table {{.Names}}\t{{.Status}}"
+
+# 手動健康檢查
+curl http://localhost:8000/health
+```
 
 ## 資料來源
 

@@ -439,6 +439,14 @@ async def health_check():
 
 def main():
     """Run the server"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="PaissaDB HTTP API Server")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8000, help="Port to bind to (default: 8000)")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload (development)")
+    args = parser.parse_args()
+    
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -446,9 +454,9 @@ def main():
     
     uvicorn.run(
         "paissa_server:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
         log_level="info"
     )
 
