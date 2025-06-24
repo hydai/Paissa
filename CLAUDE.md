@@ -148,3 +148,9 @@ sorted_plots = sorted(filtered, key=sort_key)
 if not force_refresh and world_id in cache:
     return cache[world_id]
 ```
+
+## Development Reminders
+
+- Always activate virtual environment
+  - Every time installing or executing Python, first enter venv
+    - 每次要安裝或者執行 python 以前都需要先進入 venv 中
